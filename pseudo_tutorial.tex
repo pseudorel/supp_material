@@ -1,0 +1,683 @@
+\documentclass[a4paper,11pt]{article}\usepackage[]{graphicx}\usepackage[]{color}
+%% maxwidth is the original width if it is less than linewidth
+%% otherwise use linewidth (to make sure the graphics do not exceed the margin)
+\makeatletter
+\def\maxwidth{ %
+  \ifdim\Gin@nat@width>\linewidth
+    \linewidth
+  \else
+    \Gin@nat@width
+  \fi
+}
+\makeatother
+
+\definecolor{fgcolor}{rgb}{0.345, 0.345, 0.345}
+\newcommand{\hlnum}[1]{\textcolor[rgb]{0.686,0.059,0.569}{#1}}%
+\newcommand{\hlstr}[1]{\textcolor[rgb]{0.192,0.494,0.8}{#1}}%
+\newcommand{\hlcom}[1]{\textcolor[rgb]{0.678,0.584,0.686}{\textit{#1}}}%
+\newcommand{\hlopt}[1]{\textcolor[rgb]{0,0,0}{#1}}%
+\newcommand{\hlstd}[1]{\textcolor[rgb]{0.345,0.345,0.345}{#1}}%
+\newcommand{\hlkwa}[1]{\textcolor[rgb]{0.161,0.373,0.58}{\textbf{#1}}}%
+\newcommand{\hlkwb}[1]{\textcolor[rgb]{0.69,0.353,0.396}{#1}}%
+\newcommand{\hlkwc}[1]{\textcolor[rgb]{0.333,0.667,0.333}{#1}}%
+\newcommand{\hlkwd}[1]{\textcolor[rgb]{0.737,0.353,0.396}{\textbf{#1}}}%
+\let\hlipl\hlkwb
+
+\usepackage{framed}
+\makeatletter
+\newenvironment{kframe}{%
+ \def\at@end@of@kframe{}%
+ \ifinner\ifhmode%
+  \def\at@end@of@kframe{\end{minipage}}%
+  \begin{minipage}{\columnwidth}%
+ \fi\fi%
+ \def\FrameCommand##1{\hskip\@totalleftmargin \hskip-\fboxsep
+ \colorbox{shadecolor}{##1}\hskip-\fboxsep
+     % There is no \\@totalrightmargin, so:
+     \hskip-\linewidth \hskip-\@totalleftmargin \hskip\columnwidth}%
+ \MakeFramed {\advance\hsize-\width
+   \@totalleftmargin\z@ \linewidth\hsize
+   \@setminipage}}%
+ {\par\unskip\endMakeFramed%
+ \at@end@of@kframe}
+\makeatother
+
+\definecolor{shadecolor}{rgb}{.97, .97, .97}
+\definecolor{messagecolor}{rgb}{0, 0, 0}
+\definecolor{warningcolor}{rgb}{1, 0, 1}
+\definecolor{errorcolor}{rgb}{1, 0, 0}
+\newenvironment{knitrout}{}{} % an empty environment to be redefined in TeX
+
+\usepackage{alltt}
+
+\usepackage{geometry, booktabs}
+\geometry{margin=1in}
+\usepackage{amsmath,tabularx}
+\usepackage[backend=bibtex]{biblatex}
+\newcommand{\bbt}{\boldsymbol{\beta}}
+
+\title{Supplementary material of the paper ``Direct modelling of the crude probability of cancer death and the
+number of life-years lost due to cancer without needing the cause of death: a pseudo-observation approach in the relative survival setting''. \\ \textit{A step-by-step guide on how to model the pseudo-observations of the crude probability of death and the life-years lost in the relative survival setting.}}
+
+\bibliography{references}
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\begin{document}
+\maketitle
+
+We illustrate the method using a simulated dataset that includes information on vital status, covariables (age, sex, etc.), and the expected mortality rate coming from the lifetable from the general population. For the user to be able to apply the method, 4 steps are needed:
+
+\begin{enumerate}
+  \item Prepare the data. 
+  \item Compute the pseudo-observations using the non-parametric estimator for the crude probabilities and the number of life years lost for each cause.
+  \item Fit the models for each indicator and for each cause and derive the covariable effects.
+  \item Predict the population point estimates and confidence intervals. 
+\end{enumerate}
+
+The R-packages needed for the following calculations are \texttt{survival}, \texttt{relsurv} and \texttt{geepack}. Please note here that if you use the version 2.2.1 of \texttt{relsurv}, you need to update the \texttt{survival} package to version 2.42.6. 
+
+
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlcom{# Change appropriately the folder path where simdatn2.RData }
+\hlcom{# and the expectedrates.RT.dat are located}
+\hlkwd{setwd}\hlstd{(}\hlstr{"N:/SURVIVAL/Users/Kleio/Working/papers/paper 2/appendix-code"}\hlstd{)}
+
+\hlcom{# Install the needed packages}
+\hlstd{reqPcks} \hlkwb{<-} \hlkwd{c}\hlstd{(}\hlstr{"relsurv"}\hlstd{,} \hlstr{"survival"}\hlstd{,}\hlstr{"geepack"}\hlstd{)}
+
+\hlkwa{for}\hlstd{(p} \hlkwa{in} \hlstd{reqPcks)\{}
+  \hlkwa{if}\hlstd{(}\hlopt{!}\hlkwd{require}\hlstd{(p,} \hlkwc{character.only}\hlstd{=}\hlnum{TRUE}\hlstd{)) \{}
+    \hlkwd{install.packages}\hlstd{(p)}
+    \hlkwd{library}\hlstd{(p,} \hlkwc{character.only} \hlstd{=} \hlnum{TRUE}\hlstd{)\}}
+\hlstd{\}}
+
+\hlkwd{packageVersion}\hlstd{(}\hlstr{"relsurv"}\hlstd{)}
+\end{alltt}
+\begin{verbatim}
+## [1] '2.2.1'
+\end{verbatim}
+\begin{alltt}
+\hlkwd{packageVersion}\hlstd{(}\hlstr{"survival"}\hlstd{)}
+\end{alltt}
+\begin{verbatim}
+## [1] '2.42.6'
+\end{verbatim}
+\end{kframe}
+\end{knitrout}
+\section{Step 1: Prepare the data}
+We start first by exploring our data (\texttt{simdatn2}). Data consist of 10 variables including the continuous variables age at diagnosis (\texttt{age}), year at diagnosis (\texttt{year}) and, survival time (\texttt{timesurv}), all of them expressed in years. \texttt{agecr} is defined as $\frac{(age-70)}{10}$ and \texttt{yearcr} as $\frac{(year-2002)}{10}$. There are also the binary variables sex (\texttt{sex}, \{1,2\}) and vital status (\texttt{vstat}, \{0,1\}). \texttt{cause} is a variable denoting the cause of death, which although is not used in the calculations, we will use it later to help us understand the pseudo-observations. Lastly, \texttt{popmrate} corresponds to the expected mortality rate for a given individual, while \texttt{expectedrates.RT} is a ratetable object showing the event rates for a given year, age, and sex. 
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlcom{# Load data}
+\hlkwd{load}\hlstd{(}\hlstr{"data_pseudo_tutorial2.RData"}\hlstd{)}
+
+\hlkwd{str}\hlstd{(simdatn2)}
+\end{alltt}
+\begin{verbatim}
+## 'data.frame':	1000 obs. of  10 variables:
+##  $ id      : int  1 2 3 4 5 6 7 8 9 10 ...
+##  $ sex     : num  1 2 2 2 2 1 1 1 1 1 ...
+##  $ year    : num  2000 2000 2000 2000 2000 ...
+##  $ age     : num  34.7 43 43.4 47.3 50.3 ...
+##  $ agecr   : num  -3.53 -2.7 -2.66 -2.27 -1.97 ...
+##  $ yearcr  : num  -0.172 -0.183 -0.179 -0.187 -0.187 ...
+##  $ timesurv: num  0.548 0.572 0.31 0.602 0.409 ...
+##  $ vstat   : num  1 1 1 1 0 1 1 0 1 0 ...
+##  $ cause   : num  1 1 1 1 0 1 1 0 2 0 ...
+##  $ popmrate: num  0.00113 0.00133 0.00133 0.00198 0.00265 ...
+\end{verbatim}
+\begin{alltt}
+\hlkwd{head}\hlstd{(simdatn2)}
+\end{alltt}
+\begin{verbatim}
+##   id sex     year      age     agecr     yearcr  timesurv
+## 1  1   1 2000.278 34.71650 -3.528350 -0.1722157 0.5479875
+## 2  2   2 2000.172 43.04669 -2.695331 -0.1827627 0.5719410
+## 3  3   2 2000.215 43.44366 -2.655634 -0.1785245 0.3095095
+## 4  4   2 2000.127 47.34635 -2.265365 -0.1873047 0.6024045
+## 5  5   2 2000.125 50.32838 -1.967162 -0.1874797 0.4091484
+## 6  6   1 2000.340 55.86828 -1.413172 -0.1660094 0.6528223
+##   vstat cause    popmrate
+## 1     1     1 0.001128884
+## 2     1     1 0.001331712
+## 3     1     1 0.001331712
+## 4     1     1 0.001979022
+## 5     0     0 0.002654055
+## 6     1     1 0.007801306
+\end{verbatim}
+\end{kframe}
+\end{knitrout}
+
+For the application, we need to have in our dataset (or create if needed) those variables with which we will link the data to the ratetable. We start with exploring our ratetable.
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlcom{# Explore the ratetable}
+\hlkwd{str}\hlstd{(expectedrates.RT)}
+\end{alltt}
+\begin{verbatim}
+##  ratetable [1:100, 1:2, 1:35] 3.34e-05 2.87e-06 1.26e-06 9.00e-07 7.02e-07 ...
+##  - attr(*, "dimnames")=List of 3
+##   ..$ : chr [1:100] "0" "1" "2" "3" ...
+##   ..$ : chr [1:2] "1" "2"
+##   ..$ : chr [1:35] "1981" "1982" "1983" "1984" ...
+##  - attr(*, "dimid")= chr [1:3] "AGE.RT" "SEX.RT" "YEAR.RT"
+##  - attr(*, "factor")= num [1:3] 0 1 0
+##  - attr(*, "cutpoints")=List of 3
+##   ..$ : num [1:100] 0 365 730 1096 1461 ...
+##   ..$ : NULL
+##   ..$ : num [1:35] 7671 8036 8401 8766 9132 ...
+\end{verbatim}
+\end{kframe}
+\end{knitrout}
+Our ratetable, includes 3 variables:
+\begin{itemize}
+  \item \texttt{AGE.RT}: age ranging from 0 to 99 years, expressed in days.
+  \item \texttt{SEX.RT}: sex is binary with values {1,2}.
+  \item \texttt{YEAR.RT}: year is ranging from 1981 to 2015, expressed as the difference in days between 01/01/1960 and year of diagnosis.
+\end{itemize}
+Except for sex, none of these variables exist in our data, so we need to generate them. In addition, we create also another variable called \texttt{timesurvD}, which corresponds to the survival time expressed in days, as this is necessary for the \texttt{cmp.rel} command used in the next step. 
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+ \hlstd{N} \hlkwb{<-} \hlkwd{nrow}\hlstd{(simdatn2)}
+
+ \hlcom{# Convert (1) age at diagnosis, (2) time from 01-01-1960 until diag date in }
+ \hlcom{# days.}
+ \hlcom{#-----------------------------------------------------------------------------}
+ \hlcom{# (1) Age at diagnosis in days }
+ \hlstd{simdatn2}\hlopt{$}\hlstd{agediagdays} \hlkwb{<-} \hlkwd{round}\hlstd{(simdatn2}\hlopt{$}\hlstd{age}\hlopt{*}\hlnum{365.241}\hlstd{)}
+
+ \hlcom{# (2) Transform continuous year of diagnosis the date of diagnosis }
+ \hlcom{# and subtract it from 01-01-1960.}
+ \hlstd{simdatn2}\hlopt{$}\hlstd{diag_year}\hlkwb{<-} \hlkwd{floor}\hlstd{(simdatn2}\hlopt{$}\hlstd{year)}
+ \hlstd{simdatn2}\hlopt{$}\hlstd{diag_moCont} \hlkwb{<-} \hlkwd{as.numeric}\hlstd{(}\hlkwd{substr}\hlstd{(simdatn2}\hlopt{$}\hlstd{year,}\hlnum{5}\hlstd{,}
+                                                  \hlkwd{nchar}\hlstd{(simdatn2}\hlopt{$}\hlstd{year)))}
+ \hlstd{simdatn2}\hlopt{$}\hlstd{diagDate} \hlkwb{<-} \hlkwd{as.Date}\hlstd{(}\hlkwd{paste}\hlstd{(simdatn2}\hlopt{$}\hlstd{diag_year,}
+                                        \hlstr{"-01-01"}\hlstd{,}\hlkwc{sep}\hlstd{=}\hlstr{""}\hlstd{))}\hlopt{+}
+                          \hlkwd{round}\hlstd{(simdatn2}\hlopt{$}\hlstd{diag_moCont}\hlopt{*}\hlnum{365.241}\hlstd{)}
+
+ \hlstd{simdatn2}\hlopt{$}\hlstd{diagdays1960} \hlkwb{<-} \hlkwd{as.numeric}\hlstd{(simdatn2}\hlopt{$}\hlstd{diagDate}\hlopt{-}
+                                           \hlkwd{as.Date}\hlstd{(}\hlstr{"01/01/1960"}\hlstd{,}
+                                                   \hlkwc{format}\hlstd{=}\hlstr{"%d/%m/%Y"}\hlstd{))}
+
+ \hlcom{# (3) Survival time in days}
+ \hlstd{simdatn2}\hlopt{$}\hlstd{timesurvD} \hlkwb{<-} \hlkwd{floor}\hlstd{(simdatn2}\hlopt{$}\hlstd{timesurv}\hlopt{*}\hlnum{365.241}\hlstd{)}
+\end{alltt}
+\end{kframe}
+\end{knitrout}
+
+
+
+\section{Step 2: Calculation of pseudo-observations}
+
+For the next step, we need to decide on the timepoints, at which pseudo-observations will be calculated. We chose 6 time-points (any number of time-points between 5-10 time-points should be adequate) based on a random selection of quantiles of the time-to-any-event distirbution. 
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlstd{times_c} \hlkwb{<-} \hlkwd{quantile}\hlstd{(simdatn2}\hlopt{$}\hlstd{timesurv,} \hlkwc{probs}\hlstd{=}\hlkwd{seq}\hlstd{(}\hlnum{0.15}\hlstd{,}\hlnum{1}\hlstd{,}\hlnum{0.15}\hlstd{))}
+\hlstd{times_c} \hlkwb{<-} \hlkwd{round}\hlstd{(times_c,}\hlnum{1}\hlstd{)}
+\hlkwd{print}\hlstd{(times_c)}
+\end{alltt}
+\begin{verbatim}
+##  15%  30%  45%  60%  75%  90% 
+##  0.4  1.0  2.3  4.8  9.4 10.0
+\end{verbatim}
+\end{kframe}
+\end{knitrout}
+ 
+Then, we use the leave-one-out estimator as was described in eq.1 (Section 2.1) where each $\widehat{\theta}_i$ is calculated using the non-parametric estimator which is shown in Section 2.3.1. In R-software this estimator is provided from R-package \texttt{relsurv}. 
+
+  
+We run the \texttt{cmp.rel} command once, where all individuals are included and then we run it another $n$ times (with $n$ being the sample size), where each time one individual is excluded from the dataset (leave-one-out estimator). The non-parametric estimator (provided with \texttt{cmp.rel}) gives estimates for both cancer and population estimates and thus, 2 sets of pseudo-observations are created; one corresponding to cancer (\texttt{pseudo\_CPr.1, pseudo\_lyl.1}) and another to the population (\texttt{pseudo\_CPr.2, pseudo\_lyl.2}). We show here how we can derive the pseudo-observations for both crude probabilities of death and life years lost from each cause at the same time. We have to note here though, that the pseudo-observations for the crude probabilities are estimated for all the time-points we mentioned before, while the pseudo-observations for the life years lost are only derived for the maximum time point, \textit{i.e.} $t$=10 years. 
+
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+ \hlcom{#------------------------------------------------------------------}
+ \hlcom{# L E A V E  O N E  O U T  E S T I M A T O R}
+ \hlcom{#------------------------------------------------------------------}
+
+ \hlcom{# Thetas based on the whole sample}
+ \hlstd{fit_all} \hlkwb{<-} \hlkwd{cmp.rel}\hlstd{(}\hlkwd{Surv}\hlstd{(timesurvD,vstat)}\hlopt{~}\hlnum{1}\hlopt{+}\hlkwd{ratetable}\hlstd{(}\hlkwc{AGE.RT}\hlstd{=agediagdays,}
+                                                    \hlkwc{SEX.RT}\hlstd{=sex,}
+                                                    \hlkwc{YEAR.RT}\hlstd{=diagdays1960),}
+                \hlkwc{ratetable}\hlstd{=expectedrates.RT,}\hlkwc{data}\hlstd{=simdatn2,}\hlkwc{tau}\hlstd{=}\hlnum{3652.41}\hlstd{,}
+                \hlkwc{conf.int}\hlstd{=}\hlnum{0.95}\hlstd{)}
+
+ \hlstd{results_relsurv}\hlkwb{<-} \hlkwd{list}\hlstd{(}\hlkwd{summary}\hlstd{(fit_all,} \hlkwc{times} \hlstd{= times_c)}\hlopt{$}\hlstd{est,}
+                      \hlkwd{cbind}\hlstd{(fit_all}\hlopt{$}\hlstd{causeSpec}\hlopt{$}\hlstd{area, fit_all}\hlopt{$}\hlstd{population}\hlopt{$}\hlstd{area))}
+
+
+ \hlstd{ls} \hlkwb{<-} \hlkwd{list}\hlstd{()}
+
+ \hlkwa{for} \hlstd{(y} \hlkwa{in} \hlnum{1}\hlopt{:}\hlkwd{nrow}\hlstd{(simdatn2))\{}
+ \hlstd{fit} \hlkwb{<-} \hlkwd{cmp.rel}\hlstd{(}\hlkwd{Surv}\hlstd{(timesurvD,vstat)}\hlopt{~}\hlkwd{ratetable}\hlstd{(}\hlkwc{AGE.RT}\hlstd{=agediagdays,}\hlkwc{SEX.RT}\hlstd{=sex,}
+                                                \hlkwc{YEAR.RT}\hlstd{=diagdays1960),}
+                \hlkwc{ratetable}\hlstd{=expectedrates.RT,}\hlkwc{data}\hlstd{=simdatn2[}\hlopt{-}\hlstd{y,],}\hlkwc{tau}\hlstd{=}\hlnum{3652.41}\hlstd{,}
+                \hlkwc{conf.int}\hlstd{=}\hlnum{0.95}\hlstd{)}
+\hlstd{ls[[y]]} \hlkwb{<-} \hlkwd{list}\hlstd{(}\hlkwd{summary}\hlstd{(fit,} \hlkwc{times} \hlstd{= times_c)}\hlopt{$}\hlstd{est,}
+           \hlkwd{cbind}\hlstd{(fit}\hlopt{$}\hlstd{causeSpec}\hlopt{$}\hlstd{area, fit}\hlopt{$}\hlstd{population}\hlopt{$}\hlstd{area))} \hlcom{# to be stored}
+ \hlstd{\}}
+
+ \hlcom{# Separate estimates based on the indicator and the cause }
+
+ \hlstd{CPr.1} \hlkwb{<-} \hlkwd{t}\hlstd{(}\hlkwd{sapply}\hlstd{(}\hlnum{1}\hlopt{:}\hlstd{N,} \hlkwa{function} \hlstd{(}\hlkwc{x}\hlstd{) ls[[x]][[}\hlnum{1}\hlstd{]][}\hlnum{1}\hlstd{,]))}
+ \hlcom{#dataframe dimensions: (N x times_c)}
+ \hlstd{CPr.2} \hlkwb{<-} \hlkwd{t}\hlstd{(}\hlkwd{sapply}\hlstd{(}\hlnum{1}\hlopt{:}\hlstd{N,} \hlkwa{function} \hlstd{(}\hlkwc{x}\hlstd{) ls[[x]][[}\hlnum{1}\hlstd{]][}\hlnum{2}\hlstd{,]))}
+
+ \hlstd{lyl.1} \hlkwb{<-} \hlkwd{sapply}\hlstd{(}\hlnum{1}\hlopt{:}\hlstd{N,} \hlkwa{function} \hlstd{(}\hlkwc{x}\hlstd{) ls[[x]][[}\hlnum{2}\hlstd{]][,}\hlnum{1}\hlstd{])}
+ \hlcom{#dataframe dimensions: (N x 1)}
+ \hlstd{lyl.2} \hlkwb{<-} \hlkwd{sapply}\hlstd{(}\hlnum{1}\hlopt{:}\hlstd{N,} \hlkwa{function} \hlstd{(}\hlkwc{x}\hlstd{) ls[[x]][[}\hlnum{2}\hlstd{]][,}\hlnum{2}\hlstd{])}
+
+
+ \hlcom{# Final step: leave - one - out estimator}
+
+ \hlstd{pseudo_CPr.1}\hlkwb{<-}\hlkwd{data.frame}\hlstd{(}\hlkwd{matrix}\hlstd{(}\hlnum{1}\hlstd{,}\hlkwd{nrow}\hlstd{(simdatn2),}\hlkwd{length}\hlstd{(times_c)))}
+ \hlstd{pseudo_CPr.2}\hlkwb{<-}\hlkwd{data.frame}\hlstd{(}\hlkwd{matrix}\hlstd{(}\hlnum{1}\hlstd{,}\hlkwd{nrow}\hlstd{(simdatn2),}\hlkwd{length}\hlstd{(times_c)))}
+  \hlkwd{colnames}\hlstd{(pseudo_CPr.1)}\hlkwb{<-} \hlkwd{colnames}\hlstd{(pseudo_CPr.2)}\hlkwb{<-}
+ \hlkwd{paste}\hlstd{(times_c,}\hlstr{"y"}\hlstd{,}\hlkwc{sep}\hlstd{=}\hlstr{""}\hlstd{)}
+
+ \hlstd{pseudo_lyl.1}\hlkwb{<-}\hlkwd{data.frame}\hlstd{(}\hlkwd{matrix}\hlstd{(}\hlnum{1}\hlstd{,}\hlkwd{nrow}\hlstd{(simdatn2),}\hlnum{1}\hlstd{))}
+ \hlstd{pseudo_lyl.2}\hlkwb{<-}\hlkwd{data.frame}\hlstd{(}\hlkwd{matrix}\hlstd{(}\hlnum{1}\hlstd{,}\hlkwd{nrow}\hlstd{(simdatn2),}\hlnum{1}\hlstd{))}
+  \hlkwd{colnames}\hlstd{(pseudo_lyl.1)}\hlkwb{<-} \hlkwd{colnames}\hlstd{(pseudo_lyl.2)}\hlkwb{<-}
+ \hlkwd{paste}\hlstd{(}\hlkwd{max}\hlstd{(times_c),}\hlstr{"y"}\hlstd{,}\hlkwc{sep}\hlstd{=}\hlstr{""}\hlstd{)}
+
+ \hlkwa{for}\hlstd{(y} \hlkwa{in} \hlnum{1}\hlopt{:}\hlkwd{length}\hlstd{(times_c))\{}
+  \hlkwa{for} \hlstd{(x} \hlkwa{in} \hlnum{1}\hlopt{:}\hlstd{N)\{}
+   \hlstd{pseudo_CPr.1[x,y]}\hlkwb{<-} \hlstd{N}\hlopt{*}\hlstd{results_relsurv[[}\hlnum{1}\hlstd{]][}\hlnum{1}\hlstd{,y]}\hlopt{-}\hlstd{(N}\hlopt{-}\hlnum{1}\hlstd{)}\hlopt{*}\hlstd{CPr.1[x,y]}
+   \hlstd{pseudo_CPr.2[x,y]}\hlkwb{<-} \hlstd{N}\hlopt{*}\hlstd{results_relsurv[[}\hlnum{1}\hlstd{]][}\hlnum{2}\hlstd{,y]}\hlopt{-}\hlstd{(N}\hlopt{-}\hlnum{1}\hlstd{)}\hlopt{*}\hlstd{CPr.2[x,y]}
+   \hlstd{\}}
+ \hlstd{\}}
+
+\hlkwa{for} \hlstd{(x} \hlkwa{in} \hlnum{1}\hlopt{:}\hlstd{N)\{}
+   \hlstd{pseudo_lyl.1[x,]}\hlkwb{<-} \hlstd{N}\hlopt{*}\hlstd{results_relsurv[[}\hlnum{2}\hlstd{]][,}\hlnum{1}\hlstd{]}\hlopt{-}\hlstd{(N}\hlopt{-}\hlnum{1}\hlstd{)}\hlopt{*}\hlstd{lyl.1[x]}
+   \hlstd{pseudo_lyl.2[x,]}\hlkwb{<-} \hlstd{N}\hlopt{*}\hlstd{results_relsurv[[}\hlnum{2}\hlstd{]][,}\hlnum{2}\hlstd{]}\hlopt{-}\hlstd{(N}\hlopt{-}\hlnum{1}\hlstd{)}\hlopt{*}\hlstd{lyl.2[x]}
+
+\hlstd{\}}
+\end{alltt}
+\end{kframe}
+\end{knitrout}
+ 
+With this way, we summarised all the pseudo-observations into 4 dataframes, based on the indicator and the cause of death. Before moving to the next step, it would be helpful to conceptualise the pseudo-observations and how they  behave depending on the censoring time and status. According to Andersen \& Pohar-Perme (2010), pseudo-observations calculated within the cause-specific setting in the case of censoring, tend to be negative at first and then jump above 1 in case of failing from cause of interest or remain negative (and decrease) in the case of failing from the other cause; while if they are censored, the pseudo-observations start increasing at the first next failure corresponding to the cause in question. To investigate if the same applies for the pseudo-observations that were derived through the relative survival setting, we provide 4 examples of individuals who experienced: 1. early censoring, 2. cancer death, 3. death from other causes, and 4. administrative censoring. t We examine the behaviour of the pseudo-observations that were calculated for cancer (\texttt{pseudo\_CPr.1}) and the results are shown below. 
+
+% latex table generated in R 3.4.0 by xtable 1.8-2 package
+% Wed Nov 07 18:55:51 2018
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrrrrrr}
+  \hline
+ & cens\_time & cause & 0.4y & 1y & 2.3y & 4.8y & 9.4y & 10y \\ 
+  \hline
+1 & 1.642 & 0 & -0.0111 & -0.0307 & 0.0113 & 0.1262 & 0.2157 & 0.2227 \\ 
+  2 & 3.807 & 1 & -0.0056 & -0.0157 & -0.0389 & 1.0636 & 1.0507 & 1.0497 \\ 
+  3 & 3.540 & 2 & -0.0151 & -0.0408 & -0.1017 & 0.9550 & 0.9432 & 0.9422 \\ 
+  4 & 10.000 & 0 & -0.0120 & -0.0321 & -0.0800 & -0.1957 & -0.5141 & -0.5704 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+The first and the second cases agree with the previous statement. However, in the third case, although we would expect the pseudo-observations to remain negative and decrease, we notice a similar pattern with that of case 2, with the only exception being that the pseudo-observations in this case did not reach 1. Lastly, for those who were administratively censored, the pseudo-observations are negative and constantly decrease over time. 
+
+\section{Step 3: Fit the models for each indicator and for each cause and provide the covariable effects.}
+
+For this step we used a new dataset called \texttt{b} which is an ``extended'' version of the initial dataset \texttt{simdatn2}. That means that the data were expanded in such way that now each individual instead of having one row of information, they have as many rows as the timepoints that the pseudo-observations were calculated (6). In this example, we used 6 timepoints for the pseudo-observations for the crude probabilities for each of the \texttt{N} individuals, thus the \texttt{b} dataset consisted of $N \times 6$ rows. One can think of this new dataset, as a balanced longitudinal dataset with the outcome (pseudo-observations) being measured at the same time-points. As opposed to that, the dimensions of \texttt{b} corresponding to the pseudo-observations for the number of life years lost are the same with \texttt{simdatn2}. 
+
+As we have 2 sets of pseudo-observations for each indicator, one for cancer and one for other causes, we need to define 2 models to match each cause. For simplicity, we used the same covariates for all causes, an identity link and an independent working covariance structure. The model used in both cases included the variables \texttt{agecr}, \texttt{sex} and \texttt{yearcr}. 
+
+\subsection{Models for the Crude Probabilities of death from cancer and other causes}
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlstd{linkfunc} \hlkwb{<-} \hlstr{"identity"}
+\hlstd{covastr} \hlkwb{<-} \hlstr{"independence"}
+
+      \hlkwa{for} \hlstd{(h} \hlkwa{in} \hlnum{1}\hlopt{:}\hlnum{2}\hlstd{)\{}
+        \hlstd{pseudo} \hlkwb{<-} \hlkwd{get}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_CPr"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{))}
+
+        \hlstd{b} \hlkwb{<-} \hlkwa{NULL}
+        \hlkwa{for} \hlstd{(it} \hlkwa{in} \hlnum{1}\hlopt{:}\hlkwd{length}\hlstd{(times_c)) \{}
+          \hlstd{b} \hlkwb{<-} \hlkwd{rbind}\hlstd{(b,} \hlkwd{cbind}\hlstd{(simdatn2,}
+                              \hlkwc{pseudo} \hlstd{= pseudo[,it],}
+                              \hlkwc{tpseudo} \hlstd{= times_c[it],}
+                              \hlkwc{id} \hlstd{=} \hlnum{1}\hlopt{:}\hlkwd{nrow}\hlstd{(simdatn2)))}
+        \hlstd{\}}
+        \hlstd{b} \hlkwb{<-} \hlstd{b[}\hlkwd{order}\hlstd{(b}\hlopt{$}\hlstd{id), ]}
+        \hlkwd{assign}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"b_cpd"}\hlstd{, h,} \hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),b)}
+
+
+        \hlcom{#Put sex always 2nd and interaction before any variables!}
+
+        \hlstd{pseudo_fit} \hlkwb{<-} \hlkwd{geese}\hlstd{(pseudo} \hlopt{~} \hlkwd{as.factor}\hlstd{(tpseudo)} \hlopt{+}
+                              \hlstd{agecr}\hlopt{+}\hlstd{sex}\hlopt{+}\hlstd{yearcr,} \hlkwc{data} \hlstd{= b,} \hlkwc{id} \hlstd{= id,}
+                            \hlkwc{jack} \hlstd{=} \hlnum{TRUE}\hlstd{,} \hlkwc{scale.fix} \hlstd{=} \hlnum{TRUE}\hlstd{,}
+                            \hlkwc{family} \hlstd{= gaussian,} \hlkwc{mean.link} \hlstd{= linkfunc,}
+                            \hlkwc{corstr} \hlstd{= covastr)}
+        \hlkwd{assign}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_fit_cpd"}\hlstd{, h,} \hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),pseudo_fit)}
+      \hlstd{\}}
+
+      \hlkwd{print}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"Cause: Cancer"}\hlstd{))}
+\end{alltt}
+\begin{verbatim}
+## [1] "Cause: Cancer"
+\end{verbatim}
+\begin{alltt}
+      \hlkwd{print}\hlstd{(}\hlkwd{summary}\hlstd{(pseudo_fit_cpd.1)}\hlopt{$}\hlstd{mean)}
+\end{alltt}
+\begin{verbatim}
+##                          estimate      san.se      ajs.se
+## (Intercept)            0.18592665 0.043376612 0.043319037
+## as.factor(tpseudo)1    0.12214868 0.011010724 0.010966499
+## as.factor(tpseudo)2.3  0.22912820 0.014575255 0.014516712
+## as.factor(tpseudo)4.8  0.30213387 0.016839044 0.016771409
+## as.factor(tpseudo)9.4  0.35894016 0.019110520 0.019033761
+## as.factor(tpseudo)10   0.36339510 0.019357682 0.019279930
+## agecr                  0.06379199 0.009106758 0.009114273
+## sex                   -0.01734549 0.027392288 0.027358494
+## yearcr                 0.17928122 0.162787334 0.162726497
+##                              wald            p
+## (Intercept)            18.3726603 1.816457e-05
+## as.factor(tpseudo)1   123.0681789 0.000000e+00
+## as.factor(tpseudo)2.3 247.1296018 0.000000e+00
+## as.factor(tpseudo)4.8 321.9318649 0.000000e+00
+## as.factor(tpseudo)9.4 352.7760493 0.000000e+00
+## as.factor(tpseudo)10  352.4126075 0.000000e+00
+## agecr                  49.0687160 2.471467e-12
+## sex                     0.4009741 5.265866e-01
+## yearcr                  1.2129095 2.707567e-01
+\end{verbatim}
+\begin{alltt}
+      \hlkwd{print}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"Cause: Other causes"}\hlstd{))}
+\end{alltt}
+\begin{verbatim}
+## [1] "Cause: Other causes"
+\end{verbatim}
+\begin{alltt}
+      \hlkwd{print}\hlstd{(}\hlkwd{summary}\hlstd{(pseudo_fit_cpd.2)}\hlopt{$}\hlstd{mean)}
+\end{alltt}
+\begin{verbatim}
+##                          estimate       san.se      ajs.se
+## (Intercept)            0.05470728 0.0087119594 0.008701479
+## as.factor(tpseudo)1    0.01346564 0.0004206486 0.000418959
+## as.factor(tpseudo)2.3  0.03891401 0.0013402614 0.001334878
+## as.factor(tpseudo)4.8  0.08101439 0.0031833026 0.003170517
+## as.factor(tpseudo)9.4  0.14918598 0.0068458200 0.006818323
+## as.factor(tpseudo)10   0.15728598 0.0073426576 0.007313165
+## agecr                  0.03443196 0.0018134048 0.001813052
+## sex                   -0.02570726 0.0056628217 0.005654986
+## yearcr                -0.06548895 0.0333602341 0.033343488
+##                             wald            p
+## (Intercept)             39.43288 3.395310e-10
+## as.factor(tpseudo)1   1024.74383 0.000000e+00
+## as.factor(tpseudo)2.3  843.01036 0.000000e+00
+## as.factor(tpseudo)4.8  647.69197 0.000000e+00
+## as.factor(tpseudo)9.4  474.90315 0.000000e+00
+## as.factor(tpseudo)10   458.85288 0.000000e+00
+## agecr                  360.52379 0.000000e+00
+## sex                     20.60847 5.634635e-06
+## yearcr                   3.85370 4.963637e-02
+\end{verbatim}
+\end{kframe}
+\end{knitrout}
+
+\subsection{Models for the Number of Life Years Lost due to death from cancer and other causes}
+ 
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlstd{linkfunc} \hlkwb{<-} \hlstr{"identity"}
+\hlstd{covastr} \hlkwb{<-} \hlstr{"independence"}
+\hlstd{times_lyl}\hlkwb{<-} \hlkwd{max}\hlstd{(times_c)}
+
+    \hlkwa{for} \hlstd{(h} \hlkwa{in} \hlnum{1}\hlopt{:}\hlnum{2}\hlstd{)\{}
+      \hlstd{pseudo} \hlkwb{<-} \hlkwd{get}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_lyl"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{))}
+
+      \hlstd{b} \hlkwb{<-} \hlkwa{NULL}
+      \hlkwa{for} \hlstd{(it} \hlkwa{in} \hlnum{1}\hlopt{:}\hlkwd{length}\hlstd{(times_lyl)) \{}
+        \hlstd{b} \hlkwb{<-} \hlkwd{rbind}\hlstd{(b,} \hlkwd{cbind}\hlstd{(simdatn2,}
+                            \hlkwc{pseudo} \hlstd{= pseudo[,it],}
+                            \hlkwc{tpseudo} \hlstd{= times_lyl[it],}
+                            \hlkwc{id} \hlstd{=} \hlnum{1}\hlopt{:}\hlkwd{nrow}\hlstd{(simdatn2)))}
+      \hlstd{\}}
+      \hlstd{b} \hlkwb{<-} \hlstd{b[}\hlkwd{order}\hlstd{(b}\hlopt{$}\hlstd{id), ]}
+      \hlkwd{assign}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"b_lyl"}\hlstd{, h,} \hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),b)}
+
+      \hlstd{pseudo_fit} \hlkwb{<-} \hlkwd{geese}\hlstd{(pseudo} \hlopt{~} \hlstd{agecr}\hlopt{+}\hlstd{sex}\hlopt{+}\hlstd{yearcr,} \hlkwc{data} \hlstd{= b,} \hlkwc{id} \hlstd{= id,}
+                          \hlkwc{jack} \hlstd{=} \hlnum{TRUE}\hlstd{,} \hlkwc{scale.fix} \hlstd{=} \hlnum{TRUE}\hlstd{,}
+                          \hlkwc{family} \hlstd{= gaussian,} \hlkwc{mean.link} \hlstd{= linkfunc,}
+                          \hlkwc{corstr} \hlstd{= covastr)}
+      \hlkwd{assign}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_fit_lyl"}\hlstd{, h,} \hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),pseudo_fit)}
+    \hlstd{\}}
+
+    \hlkwd{print}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"Cause: Cancer"}\hlstd{))}
+\end{alltt}
+\begin{verbatim}
+## [1] "Cause: Cancer"
+\end{verbatim}
+\begin{alltt}
+    \hlkwd{print}\hlstd{(}\hlkwd{summary}\hlstd{(pseudo_fit_lyl.1)}\hlopt{$}\hlstd{mean)}
+\end{alltt}
+\begin{verbatim}
+##               estimate    san.se    ajs.se       wald
+## (Intercept)  4.6540300 0.4879353 0.4885423 90.9774649
+## agecr        0.6967687 0.1009452 0.1012960 47.6437187
+## sex         -0.2238582 0.3013415 0.3017322  0.5518592
+## yearcr       2.0723053 1.7882753 1.7921353  1.3428847
+##                        p
+## (Intercept) 0.000000e+00
+## agecr       5.111578e-12
+## sex         4.575590e-01
+## yearcr      2.465259e-01
+\end{verbatim}
+\begin{alltt}
+    \hlkwd{print}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"Cause: Other causes"}\hlstd{))}
+\end{alltt}
+\begin{verbatim}
+## [1] "Cause: Other causes"
+\end{verbatim}
+\begin{alltt}
+    \hlkwd{print}\hlstd{(}\hlkwd{summary}\hlstd{(pseudo_fit_lyl.2)}\hlopt{$}\hlstd{mean)}
+\end{alltt}
+\begin{verbatim}
+##               estimate     san.se     ajs.se       wald
+## (Intercept)  1.4294683 0.10742974 0.10754160 177.051685
+## agecr        0.3805871 0.01934978 0.01939555 386.861907
+## sex         -0.2989296 0.06023483 0.06030396  24.628760
+## yearcr      -0.6943286 0.35731594 0.35803635   3.775942
+##                        p
+## (Intercept) 0.000000e+00
+## agecr       0.000000e+00
+## sex         6.950661e-07
+## yearcr      5.199463e-02
+\end{verbatim}
+\end{kframe}
+\end{knitrout}
+
+\section{Step 4: Predict the population point estimates and confidence intervals.}
+
+We start with the function \texttt{pseudo\_pred} which is needed in order to predict the individual/population point estimates and confidence intervals of the cumulative probabilities. The function is shown below:
+\begin{equation*}
+  \texttt{pseudo\_pred <- function(mod, tpseudo, var1, var2,var3,data,p)}
+\end{equation*}
+where \texttt{mod} is the GEE model (run with function \texttt{geese}), \texttt{tpseudo} is a vector defining the timepoints where pseudo-observations were calculated, \texttt{var1}-\texttt{var3} stand for the non-time-dependent variables in the model (we have only 3 variables), \texttt{data} are the data for which we do the predictions, \texttt{times} are the time-points in which the pseudo-observations have been calculated in Step 3, and \texttt{p} is the number of non-time-dependent variables in the model. The function can be extended to time-dependent variables. 
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+ \hlcom{#Find the variance, cod, 95%ci}
+  \hlstd{pseudo_pred} \hlkwb{<-} \hlkwa{function}\hlstd{(}\hlkwc{mod}\hlstd{,} \hlkwc{tpseudo}\hlstd{,} \hlkwc{var1}\hlstd{,} \hlkwc{var2}\hlstd{,} \hlkwc{var3}\hlstd{,} \hlkwc{data}\hlstd{,} \hlkwc{p}\hlstd{,} \hlkwc{times}\hlstd{)\{}
+
+    \hlstd{xis}  \hlkwb{<-}\hlkwd{data.frame}\hlstd{(data[,}\hlkwd{c}\hlstd{(tpseudo,var1, var2,var3)])}
+
+    \hlstd{Ntim} \hlkwb{<-} \hlkwd{length}\hlstd{(times)}
+    \hlstd{N} \hlkwb{<-} \hlkwd{nrow}\hlstd{(data)}\hlopt{/}\hlstd{Ntim}
+    \hlstd{xiss} \hlkwb{<-}\hlkwd{data.frame}\hlstd{(}\hlkwd{matrix}\hlstd{(}\hlnum{1}\hlstd{,}\hlkwd{nrow}\hlstd{(data),Ntim))}
+    \hlstd{xis}\hlkwb{<-}\hlkwd{cbind}\hlstd{(xis,xiss)}
+
+    \hlstd{betas}\hlkwb{<-} \hlstd{mod}\hlopt{$}\hlstd{beta}
+    \hlstd{cov_vars} \hlkwb{<-} \hlstd{mod}\hlopt{$}\hlstd{vbeta.ajs}
+
+    \hlstd{pred}\hlkwb{<-}\hlkwd{data.frame}\hlstd{(}\hlkwd{matrix}\hlstd{(}\hlnum{1}\hlstd{,N,Ntim))}
+    \hlstd{var}\hlkwb{<-}\hlkwa{NULL}
+
+    \hlstd{y}\hlkwb{=}\hlstd{p}
+
+    \hlkwa{if} \hlstd{(Ntim}\hlopt{!=}\hlnum{1}\hlstd{)\{}
+      \hlkwa{for} \hlstd{(i} \hlkwa{in} \hlnum{2}\hlopt{:}\hlstd{Ntim)\{}
+        \hlstd{u}\hlkwb{<-}\hlstd{y}\hlopt{+}\hlnum{1}\hlopt{+}\hlstd{i}
+        \hlstd{xis[,u]}\hlkwb{<-} \hlkwd{ifelse}\hlstd{(xis[,tpseudo]}\hlopt{==}\hlstd{times[i],}\hlnum{1}\hlstd{,}\hlnum{0}\hlstd{)}
+      \hlstd{\}}
+
+      \hlstd{xis_transf} \hlkwb{<-} \hlkwd{as.matrix}\hlstd{(}\hlkwd{cbind}\hlstd{(xis[,}\hlkwd{c}\hlstd{((}\hlkwd{ncol}\hlstd{(xis)}\hlopt{-}
+                                              \hlstd{Ntim}\hlopt{+}\hlnum{1}\hlstd{)}\hlopt{:}\hlkwd{ncol}\hlstd{(xis))],}
+                                    \hlstd{xis[,}\hlkwd{c}\hlstd{(}\hlnum{2}\hlopt{:}\hlstd{(}\hlkwd{ncol}\hlstd{(xis)}\hlopt{-}\hlstd{Ntim))]))}
+      \hlcom{#Define separately the first point}
+      \hlstd{xis_transf.1} \hlkwb{<-} \hlkwd{subset}\hlstd{(xis_transf,xis_transf[,}\hlnum{1}\hlstd{]}\hlopt{==}\hlnum{1} \hlopt{&}
+                               \hlkwd{rowSums}\hlstd{(xis_transf[,}\hlnum{2}\hlopt{:}\hlstd{Ntim])}\hlopt{==}\hlnum{0}\hlstd{)}
+      \hlstd{weights.1} \hlkwb{<-} \hlkwd{matrix}\hlstd{(}\hlkwd{rep}\hlstd{(}\hlnum{1}\hlopt{/}\hlstd{N,}\hlkwd{nrow}\hlstd{(xis_transf.1)),} \hlkwc{nrow} \hlstd{=}\hlnum{1}\hlstd{)}
+      \hlstd{new_xis_trans.1} \hlkwb{<-} \hlstd{weights.1}\hlopt{%*%}\hlstd{xis_transf.1}
+      \hlstd{var[}\hlnum{1}\hlstd{]}\hlkwb{<-} \hlkwd{as.numeric}\hlstd{(new_xis_trans.1}\hlopt{%*%}\hlstd{cov_vars}\hlopt{%*%}\hlkwd{t}\hlstd{(new_xis_trans.1))}
+      \hlstd{pred[,}\hlnum{1}\hlstd{]} \hlkwb{<-} \hlkwd{as.numeric}\hlstd{(betas}\hlopt{%*%}\hlkwd{t}\hlstd{(xis_transf.1))}
+
+      \hlkwa{for} \hlstd{(l} \hlkwa{in} \hlnum{2}\hlopt{:}\hlstd{Ntim)\{}
+        \hlstd{xis_transf.l} \hlkwb{<-} \hlkwd{subset}\hlstd{(xis_transf, xis_transf[,l]}\hlopt{==}\hlnum{1}\hlstd{)}
+        \hlstd{weights.l} \hlkwb{<-} \hlkwd{matrix}\hlstd{(}\hlkwd{rep}\hlstd{(}\hlnum{1}\hlopt{/}\hlstd{N,}\hlkwd{nrow}\hlstd{(xis_transf.l)),} \hlkwc{nrow} \hlstd{=}\hlnum{1}\hlstd{)}
+        \hlstd{new_xis_trans.l} \hlkwb{<-} \hlstd{weights.l}\hlopt{%*%}\hlstd{xis_transf.l}
+        \hlstd{var.l}\hlkwb{<-} \hlkwd{as.numeric}\hlstd{(new_xis_trans.l}\hlopt{%*%}\hlstd{cov_vars}\hlopt{%*%}\hlkwd{t}\hlstd{(new_xis_trans.l))}
+        \hlstd{pred.l} \hlkwb{<-} \hlkwd{as.numeric}\hlstd{(betas}\hlopt{%*%}\hlkwd{t}\hlstd{(xis_transf.l))}
+
+
+        \hlstd{pred[,l]} \hlkwb{<-} \hlstd{pred.l}
+        \hlstd{var[l]} \hlkwb{<-} \hlstd{var.l}
+      \hlstd{\}}
+
+    \hlstd{\}} \hlkwa{else if} \hlstd{(Ntim}\hlopt{==}\hlnum{1}\hlstd{)\{}
+      \hlstd{xis_transf} \hlkwb{<-} \hlkwd{as.matrix}\hlstd{(}\hlkwd{cbind}\hlstd{(xis[,}\hlkwd{ncol}\hlstd{(xis)],}
+                                    \hlstd{xis[,}\hlkwd{c}\hlstd{(}\hlnum{2}\hlopt{:}\hlstd{(}\hlkwd{ncol}\hlstd{(xis)}\hlopt{-}\hlnum{1}\hlstd{))]))}
+
+      \hlstd{weights.1} \hlkwb{<-} \hlkwd{matrix}\hlstd{(}\hlkwd{rep}\hlstd{(}\hlnum{1}\hlopt{/}\hlstd{N,}\hlkwd{nrow}\hlstd{(xis_transf)),} \hlkwc{nrow} \hlstd{=}\hlnum{1}\hlstd{)}
+      \hlstd{new_xis_trans.1} \hlkwb{<-} \hlstd{weights.1}\hlopt{%*%}\hlstd{xis_transf}
+      \hlstd{var[}\hlnum{1}\hlstd{]}\hlkwb{<-} \hlkwd{as.numeric}\hlstd{(new_xis_trans.1}\hlopt{%*%}\hlstd{cov_vars}\hlopt{%*%}\hlkwd{t}\hlstd{(new_xis_trans.1))}
+      \hlstd{pred[,}\hlnum{1}\hlstd{]} \hlkwb{<-} \hlkwd{as.numeric}\hlstd{(betas}\hlopt{%*%}\hlkwd{t}\hlstd{(new_xis_trans.1))}
+    \hlstd{\}}
+
+      \hlkwa{if} \hlstd{(pseudo_fit}\hlopt{$}\hlstd{model}\hlopt{$}\hlstd{mean.link}\hlopt{==}\hlstr{"cloglog"}\hlstd{)\{}
+      \hlstd{est} \hlkwb{<-} \hlkwd{colMeans}\hlstd{(}\hlnum{1}\hlopt{-}\hlkwd{exp}\hlstd{(}\hlopt{-}\hlkwd{exp}\hlstd{(pred)))}
+      \hlstd{lower} \hlkwb{<-} \hlnum{1}\hlopt{-}\hlkwd{exp}\hlstd{(}\hlopt{-}\hlkwd{exp}\hlstd{(}\hlkwd{log}\hlstd{(}\hlopt{-}\hlkwd{log}\hlstd{(}\hlnum{1}\hlopt{-}\hlstd{est))}\hlopt{-}\hlkwd{qnorm}\hlstd{(}\hlnum{0.975}\hlstd{)}\hlopt{*}\hlkwd{sqrt}\hlstd{(var)))}
+      \hlstd{upper} \hlkwb{<-} \hlnum{1}\hlopt{-}\hlkwd{exp}\hlstd{(}\hlopt{-}\hlkwd{exp}\hlstd{(}\hlkwd{log}\hlstd{(}\hlopt{-}\hlkwd{log}\hlstd{(}\hlnum{1}\hlopt{-}\hlstd{est))}\hlopt{+}\hlkwd{qnorm}\hlstd{(}\hlnum{0.975}\hlstd{)}\hlopt{*}\hlkwd{sqrt}\hlstd{(var)))}
+      \hlstd{var1} \hlkwb{<-} \hlstd{var}\hlopt{*}\hlstd{((}\hlnum{1}\hlopt{-}\hlstd{est)}\hlopt{*}\hlkwd{log}\hlstd{(}\hlnum{1}\hlopt{-}\hlstd{est))}\hlopt{^}\hlnum{2}
+    \hlstd{\}} \hlkwa{else if} \hlstd{(pseudo_fit}\hlopt{$}\hlstd{model}\hlopt{$}\hlstd{mean.link}\hlopt{==}\hlstr{"log"}\hlstd{)\{}
+      \hlstd{est} \hlkwb{<-} \hlkwd{colMeans}\hlstd{(}\hlkwd{exp}\hlstd{(pred))}
+      \hlstd{upper} \hlkwb{<-} \hlkwd{exp}\hlstd{(}\hlkwd{log}\hlstd{(est)}\hlopt{+}\hlkwd{qnorm}\hlstd{(}\hlnum{0.975}\hlstd{)}\hlopt{*}\hlkwd{sqrt}\hlstd{(var))}
+      \hlstd{lower}\hlkwb{<-}  \hlkwd{exp}\hlstd{(}\hlkwd{log}\hlstd{(est)}\hlopt{-}\hlkwd{qnorm}\hlstd{(}\hlnum{0.975}\hlstd{)}\hlopt{*}\hlkwd{sqrt}\hlstd{(var))}
+      \hlstd{var1} \hlkwb{<-} \hlstd{var}\hlopt{*}\hlstd{(est}\hlopt{^}\hlnum{2} \hlstd{)}
+    \hlstd{\}} \hlkwa{else if} \hlstd{(pseudo_fit}\hlopt{$}\hlstd{model}\hlopt{$}\hlstd{mean.link}\hlopt{==}\hlstr{"identity"}\hlstd{)\{}
+      \hlstd{est} \hlkwb{<-} \hlkwd{colMeans}\hlstd{(pred)}
+      \hlstd{lower} \hlkwb{<-} \hlstd{est}\hlopt{-}\hlkwd{qnorm}\hlstd{(}\hlnum{0.975}\hlstd{)}\hlopt{*}\hlkwd{sqrt}\hlstd{(var)}
+      \hlstd{upper} \hlkwb{<-} \hlstd{est}\hlopt{+}\hlkwd{qnorm}\hlstd{(}\hlnum{0.975}\hlstd{)}\hlopt{*}\hlkwd{sqrt}\hlstd{(var)}
+      \hlstd{var1} \hlkwb{<-} \hlstd{var}
+    \hlstd{\}}
+    \hlkwd{return}\hlstd{(}\hlkwd{as.data.frame}\hlstd{(}\hlkwd{t}\hlstd{(}\hlkwd{data.frame}\hlstd{(}\hlkwd{rbind}\hlstd{(est,lower,upper,var1)))))}
+  \hlstd{\}}
+\end{alltt}
+\end{kframe}
+\end{knitrout}
+
+Using the regression parameter estimates from the previous models and the function shown above, we predict the mean point estimates along with their confidence intervals at population level; although, this can be adopted for an individual or subgroup level. A comparison of these estimates to the non-parametric estimates (provided by \texttt{cmpr.rel}, see object \texttt{NP\_fit}) could provide a goodness-of-fit check. For the crude probabilities of death, we provide also a graph except for the point estimates for visual inspection.
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{kframe}
+\begin{alltt}
+\hlcom{# N o n - P a r a m e t r i c}
+  \hlstd{NP_fit} \hlkwb{<-} \hlkwd{cmp.rel}\hlstd{(}\hlkwd{Surv}\hlstd{(timesurvD,vstat)}\hlopt{~}\hlkwd{ratetable}\hlstd{(}\hlkwc{AGE.RT}\hlstd{=agediagdays,}
+                                                    \hlkwc{SEX.RT}\hlstd{=sex,}
+                                                    \hlkwc{YEAR.RT}\hlstd{=diagdays1960),}
+                    \hlkwc{ratetable}\hlstd{=expectedrates.RT,}\hlkwc{data}\hlstd{=simdatn2,}
+                    \hlkwc{tau}\hlstd{=}\hlkwd{max}\hlstd{(times_c)}\hlopt{*}\hlnum{365.241}\hlstd{,}\hlkwc{conf.int}\hlstd{=}\hlnum{0.95}\hlstd{)}
+
+
+\hlcom{# C r u d e  p r o b a b i l i t i e s }
+
+    \hlkwa{for} \hlstd{(h} \hlkwa{in} \hlnum{1}\hlopt{:}\hlnum{2}\hlstd{)\{}
+        \hlstd{pseudo_fit} \hlkwb{<-} \hlkwd{get}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_fit_cpd"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{))}
+        \hlstd{b} \hlkwb{<-} \hlkwd{get}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"b_cpd"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{))}
+
+        \hlstd{pseudo_data}\hlkwb{<-}\hlkwd{pseudo_pred}\hlstd{(}\hlkwc{mod}\hlstd{=pseudo_fit,} \hlkwc{tpseudo}\hlstd{=}\hlstr{"tpseudo"}\hlstd{,}
+                             \hlkwc{var1}\hlstd{=}\hlstr{"agecr"}\hlstd{,} \hlkwc{var2}\hlstd{=}\hlstr{"sex"}\hlstd{,} \hlkwc{var3}\hlstd{=}\hlstr{"yearcr"}\hlstd{,}
+                             \hlkwc{data}\hlstd{=b,}\hlkwc{p}\hlstd{=}\hlnum{3}\hlstd{,} \hlkwc{times}\hlstd{=times_c)}
+        \hlkwd{rownames}\hlstd{(pseudo_data)}\hlkwb{<-} \hlkwd{paste}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"CPr"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),}
+                                      \hlstr{"at"}\hlstd{,}\hlkwc{sep}\hlstd{=}\hlstr{" "}\hlstd{), times_c,} \hlkwc{sep}\hlstd{=}\hlstr{" "}\hlstd{),}
+                                      \hlstr{"y"}\hlstd{,}\hlkwc{sep}\hlstd{=}\hlstr{""}\hlstd{)}
+        \hlkwd{assign}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_data_cpd"}\hlstd{, h,} \hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),pseudo_data)}
+    \hlstd{\}}
+
+
+\hlcom{# L i f e  Y e a r s  L o s t}
+
+    \hlkwa{for} \hlstd{(h} \hlkwa{in} \hlnum{1}\hlopt{:}\hlnum{2}\hlstd{)\{}
+        \hlstd{pseudo_fit} \hlkwb{<-} \hlkwd{get}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_fit_lyl"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{))}
+        \hlstd{b} \hlkwb{<-} \hlkwd{get}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"b_lyl"}\hlstd{,h,}\hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{))}
+
+        \hlstd{pseudo_data}\hlkwb{<-}\hlkwd{pseudo_pred}\hlstd{(}\hlkwc{mod}\hlstd{=pseudo_fit,} \hlkwc{tpseudo}\hlstd{=}\hlstr{"tpseudo"}\hlstd{,}
+                             \hlkwc{var1}\hlstd{=}\hlstr{"agecr"}\hlstd{,} \hlkwc{var2}\hlstd{=}\hlstr{"sex"}\hlstd{,} \hlkwc{var3}\hlstd{=}\hlstr{"yearcr"}\hlstd{,}
+                             \hlkwc{data}\hlstd{=b,}\hlkwc{p}\hlstd{=}\hlnum{3}\hlstd{,} \hlkwc{times}\hlstd{=}\hlkwd{max}\hlstd{(times_c))}
+        \hlkwd{assign}\hlstd{(}\hlkwd{paste}\hlstd{(}\hlstr{"pseudo_data_lyl"}\hlstd{, h,} \hlkwc{sep}\hlstd{=}\hlstr{"."}\hlstd{),pseudo_data)}
+    \hlstd{\}}
+
+
+\hlcom{# Plot to compare non-parametric and model estimates for CPr}
+    \hlkwd{plot}\hlstd{(fit,} \hlkwc{conf.int} \hlstd{=} \hlnum{TRUE}\hlstd{,} \hlkwc{ylab}\hlstd{=}\hlstr{"Crude probabilities of death"}\hlstd{,} \hlkwc{ylim}\hlstd{=}\hlkwd{c}\hlstd{(}\hlnum{0}\hlstd{,}\hlnum{0.5}\hlstd{))}
+    \hlkwd{points}\hlstd{(times_c}\hlopt{*}\hlnum{365.241}\hlstd{,pseudo_data_cpd.1}\hlopt{$}\hlstd{est,} \hlkwc{col}\hlstd{=}\hlstr{"red"}\hlstd{,} \hlkwc{pch}\hlstd{=}\hlnum{19}\hlstd{)}
+    \hlkwd{arrows}\hlstd{(times_c}\hlopt{*}\hlnum{365.241}\hlstd{,pseudo_data_cpd.1}\hlopt{$}\hlstd{lower,}
+           \hlstd{times_c}\hlopt{*}\hlnum{365.241}\hlstd{,pseudo_data_cpd.1}\hlopt{$}\hlstd{upper,}
+           \hlkwc{length}\hlstd{=}\hlnum{0.05}\hlstd{,} \hlkwc{angle}\hlstd{=}\hlnum{90}\hlstd{,} \hlkwc{code}\hlstd{=}\hlnum{3}\hlstd{,} \hlkwc{col}\hlstd{=}\hlstr{"red"}\hlstd{)}
+    \hlkwd{points}\hlstd{(times_c}\hlopt{*}\hlnum{365.241}\hlstd{,pseudo_data_cpd.2}\hlopt{$}\hlstd{est,} \hlkwc{col}\hlstd{=}\hlstr{"red"}\hlstd{,} \hlkwc{pch}\hlstd{=}\hlnum{19}\hlstd{)}
+    \hlkwd{arrows}\hlstd{(times_c}\hlopt{*}\hlnum{365.241}\hlstd{,pseudo_data_cpd.2}\hlopt{$}\hlstd{lower,}
+           \hlstd{times_c}\hlopt{*}\hlnum{365.241}\hlstd{,pseudo_data_cpd.2}\hlopt{$}\hlstd{upper,}
+           \hlkwc{length}\hlstd{=}\hlnum{0.05}\hlstd{,} \hlkwc{angle}\hlstd{=}\hlnum{90}\hlstd{,} \hlkwc{code}\hlstd{=}\hlnum{3}\hlstd{,} \hlkwc{col}\hlstd{=}\hlstr{"red"}\hlstd{)}
+\end{alltt}
+\end{kframe}
+\includegraphics[width=\maxwidth]{figure/mychunk4b-1} 
+
+\end{knitrout}
+
+% latex table generated in R 3.4.0 by xtable 1.8-2 package
+% Wed Nov 07 18:55:53 2018
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrr}
+  \hline
+ & est & lower & upper & Non 
+ Parametric \\ 
+  \hline
+CPr.1 at 0.4y & 0.13 & 0.11 & 0.16 & 0.13 \\ 
+  CPr.1 at 1y & 0.26 & 0.23 & 0.28 & 0.26 \\ 
+  CPr.1 at 2.3y & 0.36 & 0.33 & 0.40 & 0.36 \\ 
+  CPr.1 at 4.8y & 0.44 & 0.40 & 0.47 & 0.44 \\ 
+  CPr.1 at 9.4y & 0.49 & 0.46 & 0.53 & 0.49 \\ 
+  CPr.1 at 10y & 0.50 & 0.46 & 0.54 & 0.50 \\ 
+  LYL.1 at 10y & 4.03 & 3.74 & 4.33 & 4.03 \\ 
+  CPr.2 at 0.4y & 0.01 & 0.01 & 0.01 & 0.01 \\ 
+  CPr.2 at 1y & 0.02 & 0.02 & 0.03 & 0.02 \\ 
+  CPr.2 at 2.3y & 0.05 & 0.05 & 0.05 & 0.05 \\ 
+  CPr.2 at 4.8y & 0.09 & 0.09 & 0.10 & 0.09 \\ 
+  CPr.2 at 9.4y & 0.16 & 0.15 & 0.17 & 0.16 \\ 
+  CPr.2 at 10y & 0.17 & 0.15 & 0.18 & 0.17 \\ 
+  LYL.2 at 10y & 0.92 & 0.86 & 0.98 & 0.92 \\ 
+   \hline
+\end{tabular}
+\caption{Model estimates and confidence intervals (est, lower, upper) vs. non-parametric estimates for both measures and both causes} 
+\end{table}
+
+
+\end{document}

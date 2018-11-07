@@ -1,0 +1,431 @@
+\documentclass[a4paper,11pt]{article}
+
+\usepackage{geometry, booktabs}
+\geometry{margin=1in}
+\usepackage{amsmath,tabularx}
+\usepackage[backend=bibtex]{biblatex}
+\newcommand{\bbt}{\boldsymbol{\beta}}
+
+\title{Supplementary material of the paper ``Direct modelling of the crude probability of cancer death and the
+number of life-years lost due to cancer without needing the cause of death: a pseudo-observation approach in the relative survival setting''. \\ \textit{A step-by-step guide on how to model the pseudo-observations of the crude probability of death and the life-years lost in the relative survival setting.}}
+
+\bibliography{references}
+
+
+\begin{document}
+\maketitle
+
+We illustrate the method using a simulated dataset that includes information on vital status, covariables (age, sex, etc.), and the expected mortality rate coming from the lifetable from the general population. For the user to be able to apply the method, 4 steps are needed:
+
+\begin{enumerate}
+  \item Prepare the data. 
+  \item Compute the pseudo-observations using the non-parametric estimator for the crude probabilities and the number of life years lost for each cause.
+  \item Fit the models for each indicator and for each cause and derive the covariable effects.
+  \item Predict the population point estimates and confidence intervals. 
+\end{enumerate}
+
+The R-packages needed for the following calculations are \texttt{survival}, \texttt{relsurv} and \texttt{geepack}. Please note here that if you use the version 2.2.1 of \texttt{relsurv}, you need to update the \texttt{survival} package to version 2.42.6. 
+
+<<echo=FALSE>>=
+library(knitr)
+options(width=60)
+
+@
+
+<<mychunk0, warning=FALSE, message=FALSE>>=
+# Change appropriately the folder path where simdatn2.RData 
+# and the expectedrates.RT.dat are located
+#setwd()
+
+# Install the needed packages
+reqPcks <- c("relsurv", "survival","geepack")
+
+for(p in reqPcks){
+  if(!require(p, character.only=TRUE)) {
+    install.packages(p)
+    library(p, character.only = TRUE)}
+}
+
+packageVersion("relsurv")
+packageVersion("survival")
+@
+\section{Step 1: Prepare the data}
+We start first by exploring our data (\texttt{simdatn2}). Data consist of 10 variables including the continuous variables age at diagnosis (\texttt{age}), year at diagnosis (\texttt{year}) and, survival time (\texttt{timesurv}), all of them expressed in years. \texttt{agecr} is defined as $\frac{(age-70)}{10}$ and \texttt{yearcr} as $\frac{(year-2002)}{10}$. There are also the binary variables sex (\texttt{sex}, \{1,2\}) and vital status (\texttt{vstat}, \{0,1\}). \texttt{cause} is a variable denoting the cause of death, which although is not used in the calculations, we will use it later to help us understand the pseudo-observations. Lastly, \texttt{popmrate} corresponds to the expected mortality rate for a given individual, while \texttt{expectedrates.RT} is a ratetable object showing the event rates for a given year, age, and sex. 
+
+ <<mychunkDP1, warning=FALSE, message=FALSE>>=
+# Load data
+load("data_pseudo_tutorial2.RData")
+
+str(simdatn2)
+head(simdatn2)
+@
+
+For the application, we need to have in our dataset (or create if needed) those variables with which we will link the data to the ratetable. We start with exploring our ratetable.
+
+<<mychunkDP2, warning=FALSE, message=FALSE>>=
+# Explore the ratetable
+str(expectedrates.RT)
+@
+Our ratetable, includes 3 variables:
+\begin{itemize}
+  \item \texttt{AGE.RT}: age ranging from 0 to 99 years, expressed in days.
+  \item \texttt{SEX.RT}: sex is binary with values {1,2}.
+  \item \texttt{YEAR.RT}: year is ranging from 1981 to 2015, expressed as the difference in days between 01/01/1960 and year of diagnosis.
+\end{itemize}
+Except for sex, none of these variables exist in our data, so we need to generate them. In addition, we create also another variable called \texttt{timesurvD}, which corresponds to the survival time expressed in days, as this is necessary for the \texttt{cmp.rel} command used in the next step. 
+
+<<mychunk2a, warning=FALSE, message=FALSE>>=
+
+ N <- nrow(simdatn2)
+
+ # Convert (1) age at diagnosis, (2) time from 01-01-1960 until diag date in 
+ # days.
+ #-----------------------------------------------------------------------------
+ # (1) Age at diagnosis in days 
+ simdatn2$agediagdays <- round(simdatn2$age*365.241)
+
+ # (2) Transform continuous year of diagnosis the date of diagnosis 
+ # and subtract it from 01-01-1960.
+ simdatn2$diag_year<- floor(simdatn2$year)
+ simdatn2$diag_moCont <- as.numeric(substr(simdatn2$year,5,
+                                                  nchar(simdatn2$year)))
+ simdatn2$diagDate <- as.Date(paste(simdatn2$diag_year,
+                                        "-01-01",sep=""))+
+                          round(simdatn2$diag_moCont*365.241)
+ 
+ simdatn2$diagdays1960 <- as.numeric(simdatn2$diagDate-
+                                           as.Date("01/01/1960",
+                                                   format="%d/%m/%Y"))
+
+ # (3) Survival time in days
+ simdatn2$timesurvD <- floor(simdatn2$timesurv*365.241)
+
+ @
+
+
+
+\section{Step 2: Calculation of pseudo-observations}
+
+For the next step, we need to decide on the timepoints, at which pseudo-observations will be calculated. We chose 6 time-points (any number of time-points between 5-10 time-points should be adequate) based on a random selection of quantiles of the time-to-any-event distirbution. 
+
+  <<mychunk_settime, warning=FALSE, message=FALSE>>=
+  times_c <- quantile(simdatn2$timesurv, probs=seq(0.15,1,0.15))
+  times_c <- round(times_c,1)
+  print(times_c)
+ @
+ 
+Then, we use the leave-one-out estimator as was described in eq.1 (Section 2.1) where each $\widehat{\theta}_i$ is calculated using the non-parametric estimator which is shown in Section 2.3.1. In R-software this estimator is provided from R-package \texttt{relsurv}. 
+
+  
+We run the \texttt{cmp.rel} command once, where all individuals are included and then we run it another $n$ times (with $n$ being the sample size), where each time one individual is excluded from the dataset (leave-one-out estimator). The non-parametric estimator (provided with \texttt{cmp.rel}) gives estimates for both cancer and population estimates and thus, 2 sets of pseudo-observations are created; one corresponding to cancer (\texttt{pseudo\_CPr.1, pseudo\_lyl.1}) and another to the population (\texttt{pseudo\_CPr.2, pseudo\_lyl.2}). We show here how we can derive the pseudo-observations for both crude probabilities of death and life years lost from each cause at the same time. We have to note here though, that the pseudo-observations for the crude probabilities are estimated for all the time-points we mentioned before, while the pseudo-observations for the life years lost are only derived for the maximum time point, \textit{i.e.} $t$=10 years. 
+
+
+  <<mychunk2b, warning=FALSE, message=FALSE>>=
+
+ #------------------------------------------------------------------
+ # L E A V E  O N E  O U T  E S T I M A T O R
+ #------------------------------------------------------------------
+ 
+ # Thetas based on the whole sample
+ fit_all <- cmp.rel(Surv(timesurvD,vstat)~1+ratetable(AGE.RT=agediagdays,
+                                                      SEX.RT=sex,
+                                                      YEAR.RT=diagdays1960),
+                  ratetable=expectedrates.RT,data=simdatn2,tau=3652.41,
+                  conf.int=0.95)
+ 
+ results_relsurv<- list(summary(fit_all, times = times_c)$est, 
+                        cbind(fit_all$causeSpec$area, fit_all$population$area))
+ 
+ 
+ ls <- list()
+
+ for (y in 1:nrow(simdatn2)){
+   fit <- cmp.rel(Surv(timesurvD,vstat)~ratetable(AGE.RT=agediagdays,SEX.RT=sex,
+                                                  YEAR.RT=diagdays1960),
+                  ratetable=expectedrates.RT,data=simdatn2[-y,],tau=3652.41,
+                  conf.int=0.95)
+  ls[[y]] <- list(summary(fit, times = times_c)$est, 
+             cbind(fit$causeSpec$area, fit$population$area)) # to be stored
+ }
+ 
+ # Separate estimates based on the indicator and the cause 
+ 
+ CPr.1 <- t(sapply(1:N, function (x) ls[[x]][[1]][1,])) 
+ #dataframe dimensions: (N x times_c)
+ CPr.2 <- t(sapply(1:N, function (x) ls[[x]][[1]][2,]))
+ 
+ lyl.1 <- sapply(1:N, function (x) ls[[x]][[2]][,1]) 
+ #dataframe dimensions: (N x 1)
+ lyl.2 <- sapply(1:N, function (x) ls[[x]][[2]][,2])
+ 
+
+ # Final step: leave - one - out estimator
+ 
+ pseudo_CPr.1<-data.frame(matrix(1,nrow(simdatn2),length(times_c)))
+ pseudo_CPr.2<-data.frame(matrix(1,nrow(simdatn2),length(times_c)))
+    colnames(pseudo_CPr.1)<- colnames(pseudo_CPr.2)<- 
+   paste(times_c,"y",sep="")
+ 
+ pseudo_lyl.1<-data.frame(matrix(1,nrow(simdatn2),1))
+ pseudo_lyl.2<-data.frame(matrix(1,nrow(simdatn2),1))
+    colnames(pseudo_lyl.1)<- colnames(pseudo_lyl.2)<- 
+   paste(max(times_c),"y",sep="")
+
+ for(y in 1:length(times_c)){
+    for (x in 1:N){
+     pseudo_CPr.1[x,y]<- N*results_relsurv[[1]][1,y]-(N-1)*CPr.1[x,y]
+     pseudo_CPr.2[x,y]<- N*results_relsurv[[1]][2,y]-(N-1)*CPr.2[x,y]
+     }
+ }
+  
+  for (x in 1:N){
+     pseudo_lyl.1[x,]<- N*results_relsurv[[2]][,1]-(N-1)*lyl.1[x]
+     pseudo_lyl.2[x,]<- N*results_relsurv[[2]][,2]-(N-1)*lyl.2[x]
+     
+  }
+ 
+ @
+ 
+With this way, we summarised all the pseudo-observations into 4 dataframes, based on the indicator and the cause of death. Before moving to the next step, it would be helpful to conceptualise the pseudo-observations and how they  behave depending on the censoring time and status. According to Andersen \& Pohar-Perme (2010), pseudo-observations calculated within the cause-specific setting in the case of censoring, tend to be negative at first and then jump above 1 in case of failing from cause of interest or remain negative (and decrease) in the case of failing from the other cause; while if they are censored, the pseudo-observations start increasing at the first next failure corresponding to the cause in question. To investigate if the same applies for the pseudo-observations that were derived through the relative survival setting, we provide 4 examples of individuals who experienced: 1. early censoring, 2. cancer death, 3. death from other causes, and 4. administrative censoring. t We examine the behaviour of the pseudo-observations that were calculated for cancer (\texttt{pseudo\_CPr.1}) and the results are shown below. 
+
+   <<mychunk2c, warning=FALSE, echo=FALSE, message=FALSE, results='asis'>>=
+
+  pseudoObs<- cbind("cens_time"=simdatn2$timesurv[c(258,548,523,988)], "cause"=simdatn2$cause[c(258,548,523,988)],    pseudo_CPr.1[c(258,548,523,988),])
+  rownames(pseudoObs) <- 1:nrow(pseudoObs)
+  library(xtable)
+  print(xtable(pseudoObs, digits=c(1,3,0,rep(4,6)))) 
+ @
+
+The first and the second cases agree with the previous statement. However, in the third case, although we would expect the pseudo-observations to remain negative and decrease, we notice a similar pattern with that of case 2, with the only exception being that the pseudo-observations in this case did not reach 1. Lastly, for those who were administratively censored, the pseudo-observations are negative and constantly decrease over time. 
+
+\section{Step 3: Fit the models for each indicator and for each cause and provide the covariable effects.}
+
+For this step we used a new dataset called \texttt{b} which is an ``extended'' version of the initial dataset \texttt{simdatn2}. That means that the data were expanded in such way that now each individual instead of having one row of information, they have as many rows as the timepoints that the pseudo-observations were calculated (6). In this example, we used 6 timepoints for the pseudo-observations for the crude probabilities for each of the \texttt{N} individuals, thus the \texttt{b} dataset consisted of $N \times 6$ rows. One can think of this new dataset, as a balanced longitudinal dataset with the outcome (pseudo-observations) being measured at the same time-points. As opposed to that, the dimensions of \texttt{b} corresponding to the pseudo-observations for the number of life years lost are the same with \texttt{simdatn2}. 
+
+As we have 2 sets of pseudo-observations for each indicator, one for cancer and one for other causes, we need to define 2 models to match each cause. For simplicity, we used the same covariates for all causes, an identity link and an independent working covariance structure. The model used in both cases included the variables \texttt{agecr}, \texttt{sex} and \texttt{yearcr}. 
+
+\subsection{Models for the Crude Probabilities of death from cancer and other causes}
+
+<<mychunk4a, warning=FALSE, message=FALSE>>=
+linkfunc <- "identity"
+covastr <- "independence"
+
+      for (h in 1:2){
+        pseudo <- get(paste("pseudo_CPr",h,sep="."))
+
+        b <- NULL
+        for (it in 1:length(times_c)) {
+          b <- rbind(b, cbind(simdatn2,
+                              pseudo = pseudo[,it],
+                              tpseudo = times_c[it],
+                              id = 1:nrow(simdatn2)))
+        }
+        b <- b[order(b$id), ]
+        assign(paste("b_cpd", h, sep="."),b)
+
+        
+        #Put sex always 2nd and interaction before any variables!
+
+        pseudo_fit <- geese(pseudo ~ as.factor(tpseudo) +
+                              agecr+sex+yearcr, data = b, id = id,
+                            jack = TRUE, scale.fix = TRUE,
+                            family = gaussian, mean.link = linkfunc,
+                            corstr = covastr)
+        assign(paste("pseudo_fit_cpd", h, sep="."),pseudo_fit)
+      }
+      
+      print(paste("Cause: Cancer"))
+      print(summary(pseudo_fit_cpd.1)$mean)
+      print(paste("Cause: Other causes"))
+      print(summary(pseudo_fit_cpd.2)$mean)
+
+
+@
+
+\subsection{Models for the Number of Life Years Lost due to death from cancer and other causes}
+ 
+<<mychunk5, warning=FALSE, message=FALSE>>=
+linkfunc <- "identity"
+covastr <- "independence"
+times_lyl<- max(times_c)
+
+    for (h in 1:2){
+      pseudo <- get(paste("pseudo_lyl",h,sep="."))
+
+      b <- NULL
+      for (it in 1:length(times_lyl)) {
+        b <- rbind(b, cbind(simdatn2,
+                            pseudo = pseudo[,it],
+                            tpseudo = times_lyl[it],
+                            id = 1:nrow(simdatn2)))
+      }
+      b <- b[order(b$id), ]
+      assign(paste("b_lyl", h, sep="."),b)
+
+      pseudo_fit <- geese(pseudo ~ agecr+sex+yearcr, data = b, id = id,
+                          jack = TRUE, scale.fix = TRUE,
+                          family = gaussian, mean.link = linkfunc,
+                          corstr = covastr)
+      assign(paste("pseudo_fit_lyl", h, sep="."),pseudo_fit)
+    }
+    
+    print(paste("Cause: Cancer"))
+    print(summary(pseudo_fit_lyl.1)$mean)
+    print(paste("Cause: Other causes"))
+    print(summary(pseudo_fit_lyl.2)$mean)
+  
+@
+
+\section{Step 4: Predict the population point estimates and confidence intervals.}
+
+We start with the function \texttt{pseudo\_pred} which is needed in order to predict the individual/population point estimates and confidence intervals of the cumulative probabilities. The function is shown below:
+\begin{equation*}
+  \texttt{pseudo\_pred <- function(mod, tpseudo, var1, var2,var3,data,p)}
+\end{equation*}
+where \texttt{mod} is the GEE model (run with function \texttt{geese}), \texttt{tpseudo} is a vector defining the timepoints where pseudo-observations were calculated, \texttt{var1}-\texttt{var3} stand for the non-time-dependent variables in the model (we have only 3 variables), \texttt{data} are the data for which we do the predictions, \texttt{times} are the time-points in which the pseudo-observations have been calculated in Step 3, and \texttt{p} is the number of non-time-dependent variables in the model. The function can be extended to time-dependent variables. 
+
+<<mychunk3, warning=FALSE, message=FALSE>>=
+
+ #Find the variance, cod, 95%ci
+  pseudo_pred <- function(mod, tpseudo, var1, var2, var3, data, p, times){
+    
+    xis  <-data.frame(data[,c(tpseudo,var1, var2,var3)])
+    
+    Ntim <- length(times)
+    N <- nrow(data)/Ntim
+    xiss <-data.frame(matrix(1,nrow(data),Ntim))
+    xis<-cbind(xis,xiss)
+
+    betas<- mod$beta
+    cov_vars <- mod$vbeta.ajs
+
+    pred<-data.frame(matrix(1,N,Ntim))
+    var<-NULL
+
+    y=p
+    
+    if (Ntim!=1){
+      for (i in 2:Ntim){
+        u<-y+1+i
+        xis[,u]<- ifelse(xis[,tpseudo]==times[i],1,0)
+      }
+      
+      xis_transf <- as.matrix(cbind(xis[,c((ncol(xis)-
+                                              Ntim+1):ncol(xis))],
+                                    xis[,c(2:(ncol(xis)-Ntim))]))
+      #Define separately the first point
+      xis_transf.1 <- subset(xis_transf,xis_transf[,1]==1 &
+                               rowSums(xis_transf[,2:Ntim])==0)
+      weights.1 <- matrix(rep(1/N,nrow(xis_transf.1)), nrow =1)
+      new_xis_trans.1 <- weights.1%*%xis_transf.1
+      var[1]<- as.numeric(new_xis_trans.1%*%cov_vars%*%t(new_xis_trans.1))
+      pred[,1] <- as.numeric(betas%*%t(xis_transf.1))
+      
+      for (l in 2:Ntim){
+        xis_transf.l <- subset(xis_transf, xis_transf[,l]==1)
+        weights.l <- matrix(rep(1/N,nrow(xis_transf.l)), nrow =1)
+        new_xis_trans.l <- weights.l%*%xis_transf.l
+        var.l<- as.numeric(new_xis_trans.l%*%cov_vars%*%t(new_xis_trans.l))
+        pred.l <- as.numeric(betas%*%t(xis_transf.l))
+        
+        
+        pred[,l] <- pred.l
+        var[l] <- var.l
+      }
+      
+    } else if (Ntim==1){
+      xis_transf <- as.matrix(cbind(xis[,ncol(xis)],
+                                    xis[,c(2:(ncol(xis)-1))]))
+      
+      weights.1 <- matrix(rep(1/N,nrow(xis_transf)), nrow =1)
+      new_xis_trans.1 <- weights.1%*%xis_transf
+      var[1]<- as.numeric(new_xis_trans.1%*%cov_vars%*%t(new_xis_trans.1))
+      pred[,1] <- as.numeric(betas%*%t(new_xis_trans.1))
+    }   
+    
+      if (pseudo_fit$model$mean.link=="cloglog"){
+      est <- colMeans(1-exp(-exp(pred)))
+      lower <- 1-exp(-exp(log(-log(1-est))-qnorm(0.975)*sqrt(var)))
+      upper <- 1-exp(-exp(log(-log(1-est))+qnorm(0.975)*sqrt(var)))
+      var1 <- var*((1-est)*log(1-est))^2
+    } else if (pseudo_fit$model$mean.link=="log"){
+      est <- colMeans(exp(pred))
+      upper <- exp(log(est)+qnorm(0.975)*sqrt(var))
+      lower<-  exp(log(est)-qnorm(0.975)*sqrt(var))
+      var1 <- var*(est^2 )
+    } else if (pseudo_fit$model$mean.link=="identity"){
+      est <- colMeans(pred)
+      lower <- est-qnorm(0.975)*sqrt(var)
+      upper <- est+qnorm(0.975)*sqrt(var)
+      var1 <- var
+    }
+    return(as.data.frame(t(data.frame(rbind(est,lower,upper,var1)))))
+  }
+  @
+
+Using the regression parameter estimates from the previous models and the function shown above, we predict the mean point estimates along with their confidence intervals at population level; although, this can be adopted for an individual or subgroup level. A comparison of these estimates to the non-parametric estimates (provided by \texttt{cmpr.rel}, see object \texttt{NP\_fit}) could provide a goodness-of-fit check. For the crude probabilities of death, we provide also a graph except for the point estimates for visual inspection.
+
+<<mychunk4b, warning=FALSE, message=FALSE,fig=TRUE,height=3,width=5>>=
+
+# N o n - P a r a m e t r i c
+  NP_fit <- cmp.rel(Surv(timesurvD,vstat)~ratetable(AGE.RT=agediagdays,
+                                                    SEX.RT=sex,
+                                                    YEAR.RT=diagdays1960),
+                    ratetable=expectedrates.RT,data=simdatn2,
+                    tau=max(times_c)*365.241,conf.int=0.95)
+  
+
+# C r u d e  p r o b a b i l i t i e s 
+      
+    for (h in 1:2){  
+        pseudo_fit <- get(paste("pseudo_fit_cpd",h,sep="."))
+        b <- get(paste("b_cpd",h,sep="."))
+        
+        pseudo_data<-pseudo_pred(mod=pseudo_fit, tpseudo="tpseudo",
+                             var1="agecr", var2="sex", var3="yearcr",
+                             data=b,p=3, times=times_c)
+        rownames(pseudo_data)<- paste(paste(paste(paste("CPr",h,sep="."), 
+                                      "at",sep=" "), times_c, sep=" "), 
+                                      "y",sep="")
+        assign(paste("pseudo_data_cpd", h, sep="."),pseudo_data)
+    }
+      
+    
+# L i f e  Y e a r s  L o s t
+      
+    for (h in 1:2){  
+        pseudo_fit <- get(paste("pseudo_fit_lyl",h,sep="."))
+        b <- get(paste("b_lyl",h,sep="."))
+        
+        pseudo_data<-pseudo_pred(mod=pseudo_fit, tpseudo="tpseudo",
+                             var1="agecr", var2="sex", var3="yearcr",
+                             data=b,p=3, times=max(times_c))
+        assign(paste("pseudo_data_lyl", h, sep="."),pseudo_data)
+    }
+    
+
+# Plot to compare non-parametric and model estimates for CPr
+    plot(fit, conf.int = TRUE, ylab="Crude probabilities of death", ylim=c(0,0.5))
+    points(times_c*365.241,pseudo_data_cpd.1$est, col="red", pch=19)
+    arrows(times_c*365.241,pseudo_data_cpd.1$lower,
+           times_c*365.241,pseudo_data_cpd.1$upper,
+           length=0.05, angle=90, code=3, col="red")
+    points(times_c*365.241,pseudo_data_cpd.2$est, col="red", pch=19)
+    arrows(times_c*365.241,pseudo_data_cpd.2$lower,
+           times_c*365.241,pseudo_data_cpd.2$upper,
+           length=0.05, angle=90, code=3, col="red")
+@
+
+<<mychunktabl, warning=FALSE, echo=FALSE, message=FALSE, results='asis',height=4,width=8>>=
+
+t1<-rbind(pseudo_data_cpd.1,"LYL.1 at 10y"=pseudo_data_lyl.1,
+        pseudo_data_cpd.2,"LYL.2 at 10y"=pseudo_data_lyl.2)
+
+NP_fit_times<- summary(NP_fit, times=times_c)
+t2<-c(NP_fit_times$est[1,],NP_fit$causeSpec$area,
+      NP_fit_times$est[2,], NP_fit$population$area)
+  
+print(xtable(cbind(t1[,1:3],"Non \n Parametric"=t2), caption="Model estimates and confidence intervals (est, lower, upper) vs. non-parametric estimates for both measures and both causes", booktabs=TRUE))
+@
+
+\end{document}
