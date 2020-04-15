@@ -7,9 +7,13 @@ for(p in reqPcks){
 }
 
 
-#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.
-# Main function used for simulations
-#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.
+#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.-.-.--.-.-.--.
+# Main function used for simulating survival times
+# using a subdistribution hazard (gamma_0) for the cause of interest
+# and population life tables for the other causes.
+# The function computes also the cause-specific hazard for the cause
+# of interest in order to determine the occurence of any event
+#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.-.-.--.-.-.--.
 
 #ncl          :   Number of clusters (used in doSNOW)
 #betaagec     :   BETA for age
