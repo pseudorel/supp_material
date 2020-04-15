@@ -1,12 +1,3 @@
-# Required packages
-reqPcks <- c("doSNOW", "lubridate","plyr","survival", "statmod")
-for(p in reqPcks){
-  if(!require(p, character.only=TRUE)) {
-    install.packages(p)
-  }
-}
-
-
 #-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.-.-.--.-.-.--.
 # Main function used for simulating survival times using
 # a subdistribution hazard (gamma_0) for the cause of interest
@@ -22,10 +13,32 @@ for(p in reqPcks){
 #kappa,rho, alpha : parameters for subdistribution hazard
 #adm.cens     : administrative censoring
 #drop.out     : lost to follow-up
-#lifetable.DF : population life tables in data.frame format
-#lifetable.RT : population life tables in rate.table format
+#lifetable.DF : population life tables in data.frame format (names: AGERT, SEXRT, YEARRT)
+#lifetable.RT : population life tables in rate.table format (names: AGE.RT, SEX.RT, YEAR.RT)
 #Simdata      : population data for which we want to generate the survival times
 
+
+#Note 1: betaagec, betasex, betayearcr correspond to the beta coef. used in
+#        the subdistribution hazard model for the coause of interest. The corresponding 
+#        covariates are identified in the data as (agecr, IsexH, yearcr) and they are 
+#        defined as [age-mean(age)]/10, sex(0,1), [year-mean(year)]/10.
+
+#Note 2: the function as it is accounts for life tables which are stratified by  
+#        age, sex, year. The variables are identified must be able to identify 
+#        in the data also as age (continuous), sex (binary), year(continuous)).
+#        The user can account for different life tables by
+#        adapting STEP 1 from the code below. 
+
+
+# required packages
+reqPcks <- c("doSNOW", "lubridate","plyr","survival", "statmod")
+for(p in reqPcks){
+  if(!require(p, character.only=TRUE)) {
+    install.packages(p)
+  }
+}
+
+# main function
 sim_rel <- function(ncl,betaagec, betasex, betayearcr, kappa,
                     rho, alpha, adm.cens, drop.out, lifetable.DF,
                     lifetable.RT, Simdata){
@@ -52,6 +65,7 @@ sim_rel <- function(ncl,betaagec, betasex, betayearcr, kappa,
     # STEP 1 : Population mortality (attributed to other causes)
     #-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-
     
+    # Note: age, year, sex are continuous
     lambda2_ft <- Vectorize(function(t){
       lambda2 <- subset(lifetable.DF, select="exprate", 
                         subset=(AGERT==trunc(Simdata$age[iloop]+t) & 
@@ -60,6 +74,7 @@ sim_rel <- function(ncl,betaagec, betasex, betayearcr, kappa,
       )
       return(lambda2)
     })
+    
     
     cumlam2_ft <- Vectorize(function(t){
       ddiag<-format(date_decimal(Simdata$year[iloop]), "%d-%m-%Y")
