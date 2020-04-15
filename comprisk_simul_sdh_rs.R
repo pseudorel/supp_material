@@ -8,8 +8,8 @@ for(p in reqPcks){
 
 
 #-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.-.-.--.-.-.--.
-# Main function used for simulating survival times
-# using a subdistribution hazard (gamma_0) for the cause of interest
+# Main function used for simulating survival times using
+# a subdistribution hazard (gamma_0) for the cause of interest
 # and population life tables for the other causes.
 # The function computes also the cause-specific hazard for the cause
 # of interest in order to determine the occurence of any event
@@ -184,6 +184,8 @@ sim_rel <- function(ncl,betaagec, betasex, betayearcr, kappa,
 #----------------------------- T E S T ----------------------------------------
 #------------------------------------------------------------------------------
                #FOR THE TEST USE THE examp_data_for_simulation.R.RData
+                               
+                          
 Simulasion_data <- sim_rel(ncl = 20,
                            betaagec = 0.22,betasex = 0.26, betayearcr = 0.009,
                            kappa=2,rho=1.6, alpha=0.05,
