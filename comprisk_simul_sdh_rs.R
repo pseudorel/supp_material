@@ -1,12 +1,15 @@
-#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.
-# Main function used for simulations
-#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.
+# Required packages
 reqPcks <- c("doSNOW", "lubridate","plyr","survival", "statmod")
 for(p in reqPcks){
   if(!require(p, character.only=TRUE)) {
     install.packages(p)
   }
 }
+
+
+#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.
+# Main function used for simulations
+#-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.
 
 #ncl          :   Number of clusters (used in doSNOW)
 #betaagec     :   BETA for age
@@ -176,6 +179,7 @@ sim_rel <- function(ncl,betaagec, betasex, betayearcr, kappa,
 #------------------------------------------------------------------------------
 #----------------------------- T E S T ----------------------------------------
 #------------------------------------------------------------------------------
+               #FOR THE TEST USE THE examp_data_for_simulation.R.RData
 Simulasion_data <- sim_rel(ncl = 20,
                            betaagec = 0.22,betasex = 0.26, betayearcr = 0.009,
                            kappa=2,rho=1.6, alpha=0.05,
