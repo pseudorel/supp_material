@@ -4,6 +4,7 @@
 # and population life tables for the other causes.
 # The function computes also the cause-specific hazard for the cause
 # of interest in order to determine the occurence of any event
+# AUTHOR: DK Kipourou
 #-.-.-.-.-.--.-.-.-.-.-.--.-.-.-.-.-.--.-.-.--.-.-.--.
 
 #ncl          :   Number of clusters (used in doSNOW)
